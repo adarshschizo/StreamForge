@@ -158,11 +158,16 @@ upload updates the session status.
 
 ### API security defaults
 
-The API applies security response headers and an in-memory per-client limit of
-120 requests per minute. Requests over the limit receive HTTP `429` and a
-`Retry-After` header. This limiter is intended for local and single-instance
-deployments; production multi-instance deployments should move the counter to
-Redis or an API gateway.
+The API applies security response headers and a per-client limit of 120
+requests per minute. Login has a separate limit of 10 attempts per minute and
+does not consume the general API quota. Requests over either limit receive
+HTTP `429` and a `Retry-After` header. With Redis queue mode enabled, counters
+are shared through Redis; otherwise, the in-memory limits are intended for
+local and single-instance deployments.
+
+The dashboard refreshes video status every 30 seconds while its tab is
+visible, and caches video like counts between refreshes to avoid unnecessary
+API requests.
 
 ### Search
 
@@ -221,7 +226,12 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build
 ```
 
 The API is exposed on port `8080`, the web container on port `5173`, and the
-worker uses the Redis queue and FFmpeg runtime. GitHub Actions in
+worker uses the Redis queue and FFmpeg runtime. Compose supports
+`STREAMFORGE_API_HOST_PORT`, `STREAMFORGE_POSTGRES_HOST_PORT`, and
+`STREAMFORGE_WEB_HOST_PORT` overrides if default local ports are already
+occupied. The web image defaults its API URL to the API host port; set
+`STREAMFORGE_WEB_API_URL` only when the API is hosted at a different address.
+GitHub Actions in
 `.github/workflows/ci.yml` runs Go tests, frontend checks, and all three
 container builds. Version tags publish the images to GitHub Container Registry
 under `ghcr.io/adarshschizo/streamforge-*`.
@@ -333,4 +343,7 @@ videos, uploads small files through the signed single-upload flow, and uploads
 files of 8 MiB or larger through the resumable multipart API. Multipart
 progress and the completed part list are stored in browser `localStorage`, so
 selecting the same file again resumes an interrupted upload. Failed parts are
-retried up to three times.
+retried up to three times. For local loopback addresses, the dashboard matches
+the API hostname (`localhost` or `127.0.0.1`) to the page hostname so the
+session cookie is sent consistently. Switching between those hostnames still
+requires logging in again because browsers keep cookies separately for each.

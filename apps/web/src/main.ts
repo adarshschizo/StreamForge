@@ -1,11 +1,20 @@
 import './style.css';
 
-const API = import.meta.env.VITE_API_URL ?? 'http://localhost:8080';
+const apiURL = new URL(import.meta.env.VITE_API_URL ?? 'http://localhost:8080');
+const loopbackHosts = new Set(['localhost', '127.0.0.1']);
+if (loopbackHosts.has(window.location.hostname) && loopbackHosts.has(apiURL.hostname)) {
+  apiURL.hostname = window.location.hostname;
+}
+const API = apiURL.origin;
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('StreamForge web root is missing');
 
 type Video = { id: string; title: string; description: string; status: string; visibility: string };
+type LikeSummary = { liked: boolean; count: number };
 let loadedVideos: Video[] = [];
+let loadingVideos = false;
+let dashboardPoll: number | undefined;
+const likeCache = new Map<string, LikeSummary>();
 type ProcessingStatus = { status: string; progress: number; stage: string; error?: string };
 type MultipartDraft = {
   videoId: string;
@@ -34,6 +43,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 function renderAuth(message = '') {
+  if (dashboardPoll !== undefined) {
+    window.clearInterval(dashboardPoll);
+    dashboardPoll = undefined;
+  }
   app.innerHTML = `<main class="shell auth-shell"><section class="hero"><p class="eyebrow">StreamForge</p><h1>Upload once.<br><em>Stream everywhere.</em></h1><p class="lede">Forge every upload into adaptive HLS video.</p></section><section class="card auth-card"><div class="tabs"><button class="tab active" data-mode="login">Log in</button><button class="tab" data-mode="register">Create account</button></div><form id="auth-form"><label class="login-only">Email or username<input name="login" type="text" autocomplete="username" required></label><label class="register-only hidden">Email<input name="email" type="email"></label><label class="register-only hidden">Username<input name="username" type="text"></label><label>Password<input name="password" type="password" minlength="8" required></label><button class="primary" type="submit">Continue</button><p class="form-message">${message}</p></form></section></main>`;
   let mode = 'login';
   const syncMode = () => {
@@ -60,6 +73,7 @@ function renderAuth(message = '') {
 }
 
 function renderDashboard(message = '') {
+  if (dashboardPoll !== undefined) window.clearInterval(dashboardPoll);
   app.innerHTML = `<main class="shell dashboard"><header class="topbar"><div><p class="eyebrow">StreamForge</p><h2>Your forge</h2></div><button id="logout" class="ghost">Log out</button></header><section class="card upload-card"><div><p class="eyebrow">New upload</p><h3>Turn a file into a stream</h3><p class="helper">Large files upload in resumable 8 MB parts. You can safely retry after a network interruption.</p></div><form id="upload-form"><div class="form-grid"><label>Title<input name="title" required maxlength="200" placeholder="Launch video"></label><label>Visibility<select name="visibility"><option value="PRIVATE">Private</option><option value="UNLISTED">Unlisted</option><option value="PUBLIC">Public</option></select></label><label>Video file<input name="file" type="file" accept="video/*" required></label></div><button class="primary" type="submit">Upload video</button><progress id="upload-progress" class="hidden" max="100" value="0"></progress><p id="upload-progress-label" class="progress-label"></p><p class="form-message">${message}</p></form></section><section id="player-section" class="card player-card hidden"><div class="section-heading"><div><p class="eyebrow">Playback</p><h3 id="player-title">Now playing</h3></div><button id="close-player" class="ghost">Close</button></div><video id="player" controls playsinline></video><p id="player-message" class="form-message"></p></section><section><div class="section-heading"><div><p class="eyebrow">Discover</p><h3>Public library</h3></div><form id="search-form" class="search-form"><input name="q" placeholder="Search videos"><button class="ghost" type="submit">Search</button></form></div><div id="search-list" class="video-list"></div></section><section><div class="section-heading"><div><p class="eyebrow">Library</p><h3>Your videos</h3></div><button id="refresh" class="ghost">Refresh</button></div><div id="video-list" class="video-list"></div></section></main>`;
   document.querySelector<HTMLButtonElement>('#logout')!.onclick = async () => { await request('/auth/logout', { method: 'POST' }); renderAuth(); };
   document.querySelector<HTMLButtonElement>('#refresh')!.onclick = () => loadVideos();
@@ -80,12 +94,15 @@ function renderDashboard(message = '') {
   };
   document.querySelector<HTMLFormElement>('#upload-form')!.onsubmit = uploadVideo;
   loadVideos();
-  window.setInterval(() => loadVideos(), 5000);
+  dashboardPoll = window.setInterval(() => {
+    if (document.visibilityState === 'visible') void loadVideos();
+  }, 30000);
 }
 
 async function loadVideos() {
   const list = document.querySelector<HTMLDivElement>('#video-list');
-  if (!list) return;
+  if (!list || loadingVideos || document.visibilityState !== 'visible') return;
+  loadingVideos = true;
   try {
     const videos = await request<Video[]>('/videos');
     loadedVideos = videos;
@@ -95,8 +112,16 @@ async function loadVideos() {
     }));
     const progressByVideo = new Map(statuses);
     const likes = await Promise.all(videos.map(async (video) => {
-      if (video.status !== 'READY') return [video.id, { liked: false, count: 0 }] as const;
-      try { return [video.id, await request<{ liked: boolean; count: number }>(`/videos/${video.id}/likes`)] as const; } catch { return [video.id, { liked: false, count: 0 }] as const; }
+      if (video.status !== 'READY') return [video.id, likeCache.get(video.id) ?? { liked: false, count: 0 }] as const;
+      const cached = likeCache.get(video.id);
+      if (cached) return [video.id, cached] as const;
+      try {
+        const summary = await request<LikeSummary>(`/videos/${video.id}/likes`);
+        likeCache.set(video.id, summary);
+        return [video.id, summary] as const;
+      } catch {
+        return [video.id, { liked: false, count: 0 }] as const;
+      }
     }));
     const likesByVideo = new Map(likes);
     list.innerHTML = videos.length ? videos.map((video) => {
@@ -112,11 +137,14 @@ async function loadVideos() {
     list.querySelectorAll<HTMLButtonElement>('.like').forEach((button) => button.onclick = () => toggleLike(button));
   } catch (error) {
     list.innerHTML = `<div class="empty error">${error instanceof Error ? error.message : 'Unable to load videos'}</div>`;
+  } finally {
+    loadingVideos = false;
   }
 
   async function toggleLike(button: HTMLButtonElement) {
     try {
       const summary = await request<{ liked: boolean; count: number }>(`/videos/${button.dataset.id}/like`, { method: 'POST' });
+      if (button.dataset.id) likeCache.set(button.dataset.id, summary);
       button.textContent = `${summary.liked ? 'Unlike' : 'Like'} (${summary.count})`;
       button.classList.toggle('active', summary.liked);
     } catch (error) {

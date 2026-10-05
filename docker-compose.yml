@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: streamforge
       POSTGRES_PASSWORD: streamforge
     ports:
-      - "5432:5432"
+      - "${STREAMFORGE_POSTGRES_HOST_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d:ro

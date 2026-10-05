@@ -6,10 +6,16 @@ test('register, upload, discover, like, and open a video', async ({ page }) => {
   ];
   let liked = false;
   let uploaded = false;
+  const apiHosts = new Set<string>();
 
-  await page.route('http://localhost:8080/**', async (route) => {
+  await page.route('**/*', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
+    if (url.port !== '8080') {
+      await route.continue();
+      return;
+    }
+    apiHosts.add(url.hostname);
     const pathname = url.pathname;
 
     if (pathname === '/auth/register' && request.method() === 'POST') {
@@ -26,9 +32,9 @@ test('register, upload, discover, like, and open a video', async ({ page }) => {
     } else if (pathname === '/search/videos' && request.method() === 'GET') {
       await route.fulfill({ json: videos });
     } else if (pathname === '/public/videos/video-ready/stream' && request.method() === 'GET') {
-      await route.fulfill({ json: { playlist_url: 'http://localhost:8080/test-playlist.m3u8' } });
+      await route.fulfill({ json: { playlist_url: `${url.origin}/test-playlist.m3u8` } });
     } else if (pathname === '/videos/video-uploaded/upload/initiate' && request.method() === 'POST') {
-      await route.fulfill({ json: { upload: { upload_url: 'http://localhost:8080/test-upload' } } });
+      await route.fulfill({ json: { upload: { upload_url: `${url.origin}/test-upload` } } });
     } else if (pathname === '/test-upload' && request.method() === 'PUT') {
       await route.fulfill({ status: 200 });
     } else if (pathname === '/videos/video-uploaded/upload/complete' && request.method() === 'POST') {
@@ -57,7 +63,8 @@ test('register, upload, discover, like, and open a video', async ({ page }) => {
   await page.getByRole('button', { name: 'Search' }).click();
   await page.locator('.search-play').click();
   await expect(page.locator('#player-section')).toBeVisible();
-  await expect(page.locator('#player')).toHaveAttribute('src', 'http://localhost:8080/test-playlist.m3u8');
+  const dashboardHost = new URL(page.url()).hostname;
+  await expect(page.locator('#player')).toHaveAttribute('src', `http://${dashboardHost}:8080/test-playlist.m3u8`);
 
   await page.getByLabel('Title').fill('My first upload');
   await page.getByLabel('Video file').setInputFiles({
@@ -69,4 +76,5 @@ test('register, upload, discover, like, and open a video', async ({ page }) => {
   await expect(page.locator('#upload-form .form-message')).toHaveText('Uploaded. Processing has started.');
   await expect(page.getByRole('heading', { name: 'My first upload' })).toBeVisible();
   await expect(page.getByText('PROCESSING', { exact: true })).toBeVisible();
+  expect([...apiHosts]).toEqual([dashboardHost]);
 });

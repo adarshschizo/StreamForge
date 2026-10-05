@@ -2,6 +2,7 @@ package videos
 
 import (
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -22,6 +23,10 @@ var (
 	ErrNotOwner     = errors.New("video does not belong to user")
 	ErrInvalidVideo = errors.New("invalid video")
 )
+
+func normalizeVisibility(value string) string {
+	return strings.ToUpper(strings.TrimSpace(value))
+}
 
 type Video struct {
 	ID              string    `json:"id"`

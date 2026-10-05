@@ -19,7 +19,7 @@ func NewMemoryRepository() *MemoryRepository {
 
 func (r *MemoryRepository) Create(userID string, input CreateInput) (Video, error) {
 	title := strings.TrimSpace(input.Title)
-	visibility := input.Visibility
+	visibility := normalizeVisibility(input.Visibility)
 	if visibility == "" {
 		visibility = VisibilityPrivate
 	}
@@ -124,10 +124,11 @@ func (r *MemoryRepository) UpdateForUser(userID, videoID string, input UpdateInp
 		video.Description = strings.TrimSpace(*input.Description)
 	}
 	if input.Visibility != nil {
-		if !validVisibility(*input.Visibility) {
+		visibility := normalizeVisibility(*input.Visibility)
+		if !validVisibility(visibility) {
 			return Video{}, ErrInvalidVideo
 		}
-		video.Visibility = *input.Visibility
+		video.Visibility = visibility
 	}
 	video.UpdatedAt = time.Now().UTC()
 	r.videos[video.ID] = video

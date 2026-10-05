@@ -27,6 +27,38 @@ func TestRateLimiterRejectsAfterLimit(t *testing.T) {
 	}
 }
 
+func TestRateLimiterExcludedPathDoesNotConsumeClientLimit(t *testing.T) {
+	handler := NewRateLimiter(1, time.Minute).MiddlewareExceptPaths(
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		}),
+		"/auth/login",
+	)
+	for range 2 {
+		request := httptest.NewRequest(http.MethodPost, "/auth/login", nil)
+		request.RemoteAddr = "192.0.2.11:1234"
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusNoContent {
+			t.Fatalf("excluded login request status = %d", response.Code)
+		}
+	}
+	request := httptest.NewRequest(http.MethodGet, "/videos", nil)
+	request.RemoteAddr = "192.0.2.11:1234"
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("first non-excluded request status = %d", response.Code)
+	}
+	request = httptest.NewRequest(http.MethodGet, "/videos", nil)
+	request.RemoteAddr = "192.0.2.11:1234"
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusTooManyRequests {
+		t.Fatalf("second non-excluded request status = %d", response.Code)
+	}
+}
+
 func TestSecurityHeadersAreSet(t *testing.T) {
 	handler := SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)

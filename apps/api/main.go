@@ -201,7 +201,16 @@ func newRouterWithCleanup(cfg config.Config, logger *slog.Logger) (http.Handler,
 	})
 	mux.Handle("GET /metrics", apiMetrics)
 	mux.HandleFunc("POST /auth/register", authHandler.Register)
-	mux.HandleFunc("POST /auth/login", authHandler.Login)
+	loginRateLimiter := middleware.NewRateLimiter(10, time.Minute)
+	var loginHandler http.Handler = loginRateLimiter.Middleware(http.HandlerFunc(authHandler.Login))
+	if cfg.QueueMode == "redis" {
+		if redisLoginLimiter, limiterErr := middleware.NewRedisRateLimiterWithScope(cfg.RedisURL, "login", 10, time.Minute); limiterErr == nil {
+			loginHandler = redisLoginLimiter.Middleware(http.HandlerFunc(authHandler.Login))
+		} else {
+			logger.Warn("redis login rate limiter unavailable; using in-memory limiter", "error", limiterErr)
+		}
+	}
+	mux.Handle("POST /auth/login", loginHandler)
 	mux.HandleFunc("POST /auth/logout", authHandler.Logout)
 	mux.Handle("GET /auth/me", middleware.RequireAuth(authService, http.HandlerFunc(authHandler.Me)))
 	mux.Handle("POST /videos", requireAuth(http.HandlerFunc(videoHandler.Create)))
@@ -241,10 +250,10 @@ func newRouterWithCleanup(cfg config.Config, logger *slog.Logger) (http.Handler,
 		cleanup = func() {}
 	}
 	rateLimiter := middleware.NewRateLimiter(120, time.Minute)
-	var rateLimited http.Handler = rateLimiter.Middleware(mux)
+	var rateLimited http.Handler = rateLimiter.MiddlewareExceptPaths(mux, "/auth/login")
 	if cfg.QueueMode == "redis" {
-		if redisLimiter, limiterErr := middleware.NewRedisRateLimiter(cfg.RedisURL, 120, time.Minute); limiterErr == nil {
-			rateLimited = redisLimiter.Middleware(mux)
+		if redisLimiter, limiterErr := middleware.NewRedisRateLimiterWithScope(cfg.RedisURL, "global", 120, time.Minute); limiterErr == nil {
+			rateLimited = redisLimiter.MiddlewareExceptPaths(mux, "/auth/login")
 		} else {
 			logger.Warn("redis rate limiter unavailable; using in-memory limiter", "error", limiterErr)
 		}

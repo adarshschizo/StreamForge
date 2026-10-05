@@ -3,6 +3,7 @@ package videos
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -30,7 +31,12 @@ func (h *HTTPHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	video, err := h.repository.Create(user.ID, input)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "title and visibility are invalid")
+		if errors.Is(err, ErrInvalidVideo) {
+			writeError(w, http.StatusBadRequest, "title and visibility are invalid")
+			return
+		}
+		slog.Error("creating video failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "video could not be created")
 		return
 	}
 	writeJSON(w, http.StatusCreated, video)

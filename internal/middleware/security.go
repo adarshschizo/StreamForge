@@ -31,27 +31,37 @@ func NewRateLimiter(limit int, window time.Duration) *RateLimiter {
 
 type RedisRateLimiter struct {
 	client   *redis.Client
+	scope    string
 	limit    int
 	window   time.Duration
 	fallback *RateLimiter
 }
 
 func NewRedisRateLimiter(redisURL string, limit int, window time.Duration) (*RedisRateLimiter, error) {
+	return NewRedisRateLimiterWithScope(redisURL, "global", limit, window)
+}
+
+func NewRedisRateLimiterWithScope(redisURL, scope string, limit int, window time.Duration) (*RedisRateLimiter, error) {
 	options, err := redis.ParseURL(redisURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse redis URL: %w", err)
 	}
 	client := redis.NewClient(options)
-	return &RedisRateLimiter{client: client, limit: limit, window: window, fallback: NewRateLimiter(limit, window)}, nil
+	return &RedisRateLimiter{client: client, scope: scope, limit: limit, window: window, fallback: NewRateLimiter(limit, window)}, nil
 }
 
 func (l *RedisRateLimiter) Middleware(next http.Handler) http.Handler {
+	return l.MiddlewareExceptPaths(next)
+}
+
+func (l *RedisRateLimiter) MiddlewareExceptPaths(next http.Handler, excludedPaths ...string) http.Handler {
+	excluded := pathSet(excludedPaths)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodOptions {
+		if r.Method == http.MethodOptions || isPathExcluded(excluded, r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}
-		key := "streamforge:ratelimit:" + clientIP(r)
+		key := fmt.Sprintf("streamforge:ratelimit:%s:%s", l.scope, clientIP(r))
 		ctx, cancel := context.WithTimeout(r.Context(), 250*time.Millisecond)
 		count, err := l.client.Incr(ctx, key).Result()
 		if err == nil && count == 1 {
@@ -59,7 +69,7 @@ func (l *RedisRateLimiter) Middleware(next http.Handler) http.Handler {
 		}
 		cancel()
 		if err != nil {
-			l.fallback.Middleware(next).ServeHTTP(w, r)
+			l.fallback.MiddlewareExceptPaths(next, excludedPaths...).ServeHTTP(w, r)
 			return
 		}
 		if count > int64(l.limit) {
@@ -80,8 +90,13 @@ func (l *RedisRateLimiter) Close() error {
 }
 
 func (l *RateLimiter) Middleware(next http.Handler) http.Handler {
+	return l.MiddlewareExceptPaths(next)
+}
+
+func (l *RateLimiter) MiddlewareExceptPaths(next http.Handler, excludedPaths ...string) http.Handler {
+	excluded := pathSet(excludedPaths)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodOptions {
+		if r.Method == http.MethodOptions || isPathExcluded(excluded, r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -103,6 +118,19 @@ func (l *RateLimiter) Middleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func pathSet(paths []string) map[string]struct{} {
+	result := make(map[string]struct{}, len(paths))
+	for _, path := range paths {
+		result[path] = struct{}{}
+	}
+	return result
+}
+
+func isPathExcluded(excluded map[string]struct{}, path string) bool {
+	_, ok := excluded[path]
+	return ok
 }
 
 func SecurityHeaders(next http.Handler) http.Handler {
