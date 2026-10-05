@@ -1,0 +1,13 @@
+{
+  "name": "streamforge-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0"
+  }
+}

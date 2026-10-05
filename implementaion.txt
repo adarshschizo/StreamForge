@@ -1,0 +1,1464 @@
+Absolutely. For this project, I recommend the name StreamForge.
+It sounds like a real developer/product platform, is easy to remember, and fits the idea of forging raw video into optimized, distributed streaming content.
+🚀 StreamForge
+Distributed Video Processing & Adaptive Streaming Platform
+Tagline: Upload once. Process anywhere. Stream everywhere.
+
+Below is the complete copyable implementation plan you can put directly into IMPLEMENTATION_PLAN.md.
+# StreamForge
+## Distributed Video Processing & Adaptive Streaming Platform
+
+> Upload once. Process anywhere. Stream everywhere.
+
+---
+
+# 1. Project Overview
+
+StreamForge is a cloud-native distributed video processing and streaming platform.
+
+The platform allows users to:
+
+- Register and authenticate
+- Upload large video files
+- Resume interrupted uploads
+- Store videos in object storage
+- Process videos asynchronously
+- Distribute video-processing jobs across multiple workers
+- Generate multiple video resolutions
+- Generate HLS streams
+- Generate thumbnails
+- Stream videos using adaptive bitrate streaming
+- Search videos
+- Like and comment on videos
+- Track watch history
+- View video analytics
+- Monitor processing jobs
+- Automatically recover failed processing jobs
+- Scale video-processing workers horizontally
+
+The system will be designed using distributed-system principles such as:
+
+- Asynchronous processing
+- Message queues
+- Consumer groups
+- Horizontal scaling
+- Retry mechanisms
+- Dead-letter queues
+- Idempotency
+- Rate limiting
+- Caching
+- Fault tolerance
+- Observability
+- Distributed tracing
+- Containerization
+- Kubernetes orchestration
+
+---
+
+# 2. Project Goals
+
+## Primary Goals
+
+1. Build a production-style video platform.
+2. Learn distributed backend architecture.
+3. Build a scalable Go backend.
+4. Implement asynchronous video processing.
+5. Implement FFmpeg-based transcoding.
+6. Implement HLS adaptive streaming.
+7. Implement distributed workers.
+8. Containerize the entire application.
+9. Deploy the system using Kubernetes.
+10. Add production-grade monitoring and observability.
+
+## Secondary Goals
+
+- Learn cloud architecture.
+- Learn object storage.
+- Learn Redis Streams.
+- Learn Kubernetes autoscaling.
+- Learn CI/CD.
+- Learn distributed failure recovery.
+- Build a strong portfolio project.
+
+---
+
+# 3. Final Technology Stack
+
+## Frontend
+
+- SvelteKit
+- TypeScript
+- Tailwind CSS
+- HTML5 Video
+- HLS.js
+
+## Backend
+
+- Go
+- Chi Router
+- REST API
+- WebSockets / Server-Sent Events
+
+## Database
+
+- PostgreSQL
+
+## Cache / Queue
+
+- Redis
+- Redis Streams
+
+## Video Processing
+
+- FFmpeg
+- FFprobe
+
+## Object Storage
+
+Development:
+- MinIO
+
+Production:
+- AWS S3
+
+## Containerization
+
+- Docker
+- Docker Compose
+
+## Orchestration
+
+- Kubernetes
+- Kubernetes HPA
+
+## Cloud
+
+- AWS
+- S3
+- RDS PostgreSQL
+- ElastiCache Redis
+- EKS
+- CloudFront
+- Route 53
+
+## Monitoring
+
+- Prometheus
+- Grafana
+- OpenTelemetry
+
+## Testing
+
+- Go testing
+- Postman
+- k6
+- Integration tests
+
+## CI/CD
+
+- GitHub Actions
+
+---
+
+# 4. High-Level Architecture
+
+                         ┌──────────────────┐
+                         │      Users       │
+                         └────────┬─────────┘
+                                  │
+                                  ▼
+                         ┌──────────────────┐
+                         │    SvelteKit     │
+                         │    Frontend      │
+                         └────────┬─────────┘
+                                  │
+                                  ▼
+                         ┌──────────────────┐
+                         │   Load Balancer  │
+                         └────────┬─────────┘
+                                  │
+                                  ▼
+                         ┌──────────────────┐
+                         │     Go API       │
+                         │     Server       │
+                         └───────┬───┬──────┘
+                                 │   │
+                 ┌───────────────┘   └────────────────┐
+                 ▼                                    ▼
+        ┌─────────────────┐                  ┌─────────────────┐
+        │   PostgreSQL    │                  │      Redis      │
+        │    Metadata     │                  │ Cache + Queue   │
+        └─────────────────┘                  └────────┬────────┘
+                                                      │
+                                               Redis Streams
+                                                      │
+                              ┌────────────────────────┼────────────────────┐
+                              ▼                        ▼                    ▼
+                       ┌────────────┐           ┌────────────┐       ┌────────────┐
+                       │  Worker 1  │           │  Worker 2  │       │  Worker 3  │
+                       └─────┬──────┘           └─────┬──────┘       └─────┬──────┘
+                             │                        │                    │
+                             └────────────────────────┼────────────────────┘
+                                                      ▼
+                                                ┌──────────┐
+                                                │  FFmpeg  │
+                                                └────┬─────┘
+                                                     │
+                                                     ▼
+                                             ┌──────────────┐
+                                             │ S3 / MinIO   │
+                                             └──────┬───────┘
+                                                    │
+                                                    ▼
+                                             HLS Video Files
+                                                    │
+                                                    ▼
+                                               CloudFront
+                                                    │
+                                                    ▼
+                                                  Users
+
+
+5. Repository Structure
+streamforge/
+│
+├── apps/
+│   ├── api/
+│   │   └── main.go
+│   │
+│   ├── worker/
+│   │   └── main.go
+│   │
+│   └── web/
+│       └── SvelteKit application
+│
+├── internal/
+│   ├── auth/
+│   ├── users/
+│   ├── videos/
+│   ├── uploads/
+│   ├── processing/
+│   ├── storage/
+│   ├── queue/
+│   ├── database/
+│   ├── analytics/
+│   ├── comments/
+│   ├── likes/
+│   ├── search/
+│   ├── middleware/
+│   └── config/
+│
+├── migrations/
+│
+├── deployments/
+│   ├── docker/
+│   └── kubernetes/
+│
+├── scripts/
+│
+├── tests/
+│   ├── integration/
+│   ├── load/
+│   └── e2e/
+│
+├── docs/
+│   ├── architecture.md
+│   ├── database.md
+│   ├── api.md
+│   ├── processing-pipeline.md
+│   ├── deployment.md
+│   └── security.md
+│
+├── .github/
+│   └── workflows/
+│       ├── ci.yml
+│       ├── docker.yml
+│       └── deploy.yml
+│
+├── docker-compose.yml
+├── Dockerfile
+├── Makefile
+├── go.mod
+├── .env.example
+├── .gitignore
+└── README.md
+6. Development Phases
+The project will be developed in the following phases:
+Phase 1  - Project Initialization
+Phase 2  - Development Infrastructure
+Phase 3  - Go Backend
+Phase 4  - Database
+Phase 5  - Authentication
+Phase 6  - Frontend
+Phase 7  - Video Management
+Phase 8  - Object Storage
+Phase 9  - Multipart Upload
+Phase 10 - Redis Queue
+Phase 11 - Worker Service
+Phase 12 - FFmpeg Processing
+Phase 13 - HLS Streaming
+Phase 14 - Real-Time Processing Updates
+Phase 15 - Search
+Phase 16 - Social Features
+Phase 17 - Analytics
+Phase 18 - Caching
+Phase 19 - Rate Limiting
+Phase 20 - Security
+Phase 21 - Docker
+Phase 22 - Kubernetes
+Phase 23 - Worker Scaling
+Phase 24 - Observability
+Phase 25 - Testing
+Phase 26 - Load Testing
+Phase 27 - CI/CD
+Phase 28 - AWS Deployment
+Phase 29 - CDN
+Phase 30 - Final Optimization
+7. PHASE 1 — Project Initialization
+Tasks
+- Create GitHub repository
+- Create local repository
+- Initialize Go module
+- Initialize SvelteKit project
+- Create folder structure
+- Create README
+- Create .gitignore
+- Create .env.example
+- Create Makefile
+Commands
+mkdir streamforge
+cd streamforge
+
+git init
+
+go mod init github.com/YOUR_USERNAME/streamforge
+
+Create frontend:
+npx sv create apps/web
+
+8. PHASE 2 — Local Infrastructure
+Run the following using Docker Compose:
+- PostgreSQL
+- Redis
+- MinIO
+Services:
+postgres
+redis
+minio
+
+Verify:
+docker compose up -d
+
+docker compose ps
+
+9. PHASE 3 — Go Backend
+Create Go API server.
+Implement:
+GET /health
+GET /ready
+GET /version
+
+Example:
+GET /health
+
+{
+    "status": "ok"
+}
+
+Add:
+- HTTP server
+- Router
+- Middleware
+- Configuration
+- Graceful shutdown
+- Structured logging
+10. PHASE 4 — Database
+Use PostgreSQL.
+Create migrations for:
+users
+videos
+upload_sessions
+processing_jobs
+video_renditions
+comments
+likes
+view_events
+watch_history
+playlists
+subscriptions
+
+11. Database Schema
+users
+id
+email
+username
+password_hash
+created_at
+updated_at
+
+videos
+id
+user_id
+title
+description
+status
+visibility
+original_key
+duration
+width
+height
+file_size
+created_at
+updated_at
+
+upload_sessions
+id
+video_id
+storage_key
+upload_id
+status
+expires_at
+created_at
+
+processing_jobs
+id
+video_id
+status
+attempts
+worker_id
+error_message
+started_at
+completed_at
+created_at
+updated_at
+
+video_renditions
+id
+video_id
+resolution
+width
+height
+bitrate
+codec
+playlist_key
+created_at
+
+12. PHASE 5 — Authentication
+Implement:
+POST /auth/register
+POST /auth/login
+POST /auth/logout
+GET  /auth/me
+
+Use:
+- Argon2id password hashing
+- JWT
+- HTTP-only cookies
+- Secure cookies
+- Authentication middleware
+- Authorization middleware
+Requirements:
+- Passwords must never be stored in plaintext.
+- Users can only modify their own resources.
+- Authentication failures must be rate limited.
+13. PHASE 6 — Frontend
+Create:
+/login
+/register
+/dashboard
+/upload
+/videos/[id]
+/watch/[id]
+/settings
+
+Dashboard should show:
+- User information
+- Uploaded videos
+- Processing status
+- Upload progress
+- Video thumbnails
+- Views
+- Likes
+14. PHASE 7 — Video Management
+Implement:
+POST   /videos
+GET    /videos
+GET    /videos/:id
+PATCH  /videos/:id
+DELETE /videos/:id
+
+Video lifecycle:
+UPLOADING
+    ↓
+UPLOADED
+    ↓
+PROCESSING
+    ↓
+READY
+
+Failure:
+PROCESSING
+    ↓
+FAILED
+
+15. PHASE 8 — Object Storage
+Use MinIO locally.
+Create buckets:
+streamforge-originals
+streamforge-processed
+streamforge-thumbnails
+
+Production:
+AWS S3
+
+Never store video files in PostgreSQL.
+PostgreSQL stores metadata.
+Object storage stores video data.
+16. PHASE 9 — Multipart Upload
+Implement:
+POST /videos/:id/upload/initiate
+POST /videos/:id/upload/complete
+POST /videos/:id/upload/abort
+
+Upload architecture:
+Browser
+   |
+   | Request upload
+   v
+Go API
+   |
+   | Presigned upload information
+   v
+Browser
+   |
+   | Multipart upload
+   v
+S3 / MinIO
+
+Requirements:
+- Chunked uploads
+- Parallel uploads
+- Retry failed chunks
+- Upload progress
+- Resume interrupted uploads
+- Upload expiration
+17. PHASE 10 — Redis
+Use Redis for:
+- Job queue
+- Cache
+- Rate limiting
+- Processing progress
+- Temporary state
+Create Redis Stream:
+video-processing
+
+Job format:
+{
+    "job_id": "UUID",
+    "video_id": "UUID",
+    "input_key": "originals/video.mp4"
+}
+
+18. PHASE 11 — Worker Service
+Create:
+apps/worker
+
+Worker lifecycle:
+Start
+ ↓
+Connect Redis
+ ↓
+Join consumer group
+ ↓
+Read job
+ ↓
+Process video
+ ↓
+Upload result
+ ↓
+Update PostgreSQL
+ ↓
+ACK Redis message
+
+Worker must support:
+- Graceful shutdown
+- Job acknowledgement
+- Retries
+- Failure handling
+- Heartbeat
+- Structured logging
+19. PHASE 12 — FFmpeg Processing
+Worker receives:
+video.mp4
+
+Run FFprobe.
+Extract:
+duration
+width
+height
+fps
+video codec
+audio codec
+bitrate
+
+Generate thumbnail.
+Generate resolutions:
+360p
+720p
+1080p
+
+Only generate resolutions supported by the source video.
+20. PHASE 13 — HLS Generation
+Generate:
+master.m3u8
+
+and:
+360p/index.m3u8
+720p/index.m3u8
+1080p/index.m3u8
+
+Example:
+videos/
+└── VIDEO_ID/
+    └── hls/
+        ├── master.m3u8
+        ├── 360p/
+        │   ├── index.m3u8
+        │   └── segments/
+        ├── 720p/
+        │   ├── index.m3u8
+        │   └── segments/
+        └── 1080p/
+            ├── index.m3u8
+            └── segments/
+
+21. PHASE 14 — Streaming
+Implement:
+GET /videos/:id/stream
+
+The player should load:
+master.m3u8
+
+Use:
+- HTML5 video
+- HLS.js
+Support adaptive bitrate streaming.
+22. PHASE 15 — Processing Progress
+Worker should publish:
+{
+    "video_id": "UUID",
+    "status": "PROCESSING",
+    "progress": 72
+}
+
+Frontend receives updates through:
+- WebSocket
+  OR
+- Server-Sent Events
+UI:
+Processing video...
+
+72%
+██████████████░░░░░░
+
+23. PHASE 16 — Distributed Processing
+Deploy multiple workers:
+Worker 1
+Worker 2
+Worker 3
+Worker 4
+
+All workers consume from:
+video-processing
+
+Use Redis consumer groups.
+Requirements:
+- Multiple workers
+- Job acknowledgement
+- Job retry
+- Pending job recovery
+- Worker identification
+- Worker heartbeat
+24. PHASE 17 — Retry System
+Maximum attempts:
+3
+
+Example:
+Job
+ ↓
+Worker 1
+ ↓
+FAIL
+ ↓
+Retry
+ ↓
+Worker 2
+ ↓
+FAIL
+ ↓
+Retry
+ ↓
+Worker 3
+ ↓
+SUCCESS
+
+After 3 failures:
+FAILED
+
+Store:
+attempts
+error_message
+worker_id
+
+25. PHASE 18 — Dead Letter Queue
+Create:
+video-processing-dlq
+
+If a job permanently fails:
+Processing Queue
+       ↓
+3 failed attempts
+       ↓
+Dead Letter Queue
+
+Admin can inspect failed jobs.
+26. PHASE 19 — Idempotency
+Processing must be idempotent.
+Before processing:
+Check job status
+
+If already completed:
+ACK
+EXIT
+
+Use unique constraints to prevent duplicate processing.
+27. PHASE 20 — Search
+Implement:
+GET /search?q=golang
+
+Search:
+- title
+- description
+- tags
+Initially use PostgreSQL full-text search.
+Later optionally add:
+- OpenSearch
+- Elasticsearch
+28. PHASE 21 — Comments
+Implement:
+POST   /videos/:id/comments
+GET    /videos/:id/comments
+DELETE /comments/:id
+
+Requirements:
+- Authentication
+- Authorization
+- Pagination
+- Rate limiting
+- Input validation
+29. PHASE 22 — Likes
+Implement:
+POST   /videos/:id/like
+DELETE /videos/:id/like
+GET    /videos/:id/likes
+
+Prevent duplicate likes using database constraints.
+30. PHASE 23 — Watch History
+Store:
+user_id
+video_id
+watch_position
+watch_duration
+updated_at
+
+Implement:
+POST /videos/:id/progress
+GET  /history
+
+Allow users to resume videos.
+31. PHASE 24 — Analytics
+Track:
+- Views
+- Watch duration
+- Completion rate
+- Likes
+- Comments
+- Unique viewers
+- Device
+- Browser
+- Country
+Admin dashboard:
+Total Users
+Total Videos
+Total Views
+Total Watch Time
+Total Storage
+Processing Jobs
+Failed Jobs
+Average Processing Time
+
+32. PHASE 25 — Redis Caching
+Cache:
+video metadata
+popular videos
+homepage
+search results
+
+Cache flow:
+Request
+   ↓
+Redis
+   |
+   ├── HIT → Return
+   |
+   └── MISS
+         ↓
+      PostgreSQL
+         ↓
+       Redis
+
+Implement TTL.
+33. PHASE 26 — Rate Limiting
+Protect:
+/login
+/register
+/upload
+/search
+/comments
+
+Use Redis-backed rate limiting.
+Example:
+Login:
+5 requests/minute/IP
+
+34. PHASE 27 — Security
+Implement:
+Authentication
+- Argon2id
+- Secure cookies
+- JWT
+- Token expiration
+Authorization
+Users cannot:
+- Delete another user's videos
+- Modify another user's videos
+- Access private videos
+Upload Security
+Validate:
+- File size
+- MIME type
+- Extension
+- Video codec
+- Container format
+Worker Security
+FFmpeg workers should have:
+- CPU limits
+- Memory limits
+- Disk limits
+- Execution timeout
+- Restricted network access
+35. PHASE 28 — Docker
+Create images for:
+api
+worker
+web
+
+Docker Compose:
+api
+worker
+web
+postgres
+redis
+minio
+
+Run:
+docker compose up -d
+
+36. PHASE 29 — Kubernetes
+Create:
+namespace.yaml
+api-deployment.yaml
+api-service.yaml
+worker-deployment.yaml
+web-deployment.yaml
+redis.yaml
+postgres.yaml
+ingress.yaml
+configmap.yaml
+secret.yaml
+
+37. PHASE 30 — Worker Autoscaling
+Scale workers based on:
+queue depth
+CPU
+memory
+
+Example:
+Queue = 5 jobs
+Workers = 2
+
+Queue = 100 jobs
+Workers = 10
+
+Implement Kubernetes HPA.
+38. PHASE 31 — Health Checks
+API:
+/health
+/ready
+
+Worker:
+heartbeat
+
+Kubernetes should restart unhealthy containers automatically.
+39. PHASE 32 — Graceful Shutdown
+API:
+SIGTERM
+ ↓
+Stop accepting requests
+ ↓
+Finish existing requests
+ ↓
+Close DB
+ ↓
+Close Redis
+ ↓
+Exit
+
+Worker:
+SIGTERM
+ ↓
+Stop accepting jobs
+ ↓
+Finish current job
+ ↓
+ACK if successful
+ ↓
+Close connections
+ ↓
+Exit
+
+40. PHASE 33 — Observability
+Implement:
+- Structured logging
+- Prometheus
+- Grafana
+- OpenTelemetry
+Metrics:
+http_requests_total
+http_request_duration_seconds
+video_processing_total
+video_processing_failed_total
+video_processing_duration_seconds
+queue_depth
+worker_jobs_total
+worker_jobs_failed_total
+upload_bytes_total
+
+41. PHASE 34 — Distributed Tracing
+Trace:
+HTTP Request
+     ↓
+API
+     ↓
+Database
+     ↓
+Redis
+     ↓
+Worker
+     ↓
+FFmpeg
+     ↓
+S3
+
+Every major operation should have a trace ID.
+42. PHASE 35 — Testing
+Implement:
+Unit Tests
+Test:
+- Authentication
+- JWT
+- Database logic
+- Queue logic
+- Video state transitions
+- Storage logic
+Integration Tests
+Test:
+API → PostgreSQL
+API → Redis
+API → MinIO
+Worker → Redis
+Worker → PostgreSQL
+Worker → MinIO
+
+E2E Tests
+Test:
+Register
+ ↓
+Login
+ ↓
+Upload
+ ↓
+Process
+ ↓
+Stream
+ ↓
+Like
+ ↓
+Comment
+
+43. PHASE 36 — Failure Testing
+Test:
+Worker crash
+Worker 1
+ ↓
+Processing
+ ↓
+Crash
+ ↓
+Worker 2
+ ↓
+Recover job
+
+Redis failure
+Verify graceful API behavior.
+PostgreSQL failure
+Verify health checks and error handling.
+Invalid video
+Verify:
+PROCESSING → FAILED
+
+Duplicate job
+Verify idempotency.
+44. PHASE 37 — Load Testing
+Use k6.
+Test:
+100 concurrent users
+500 concurrent users
+1000 concurrent users
+
+Measure:
+RPS
+p50 latency
+p95 latency
+p99 latency
+error rate
+queue latency
+processing time
+
+45. PHASE 38 — CI/CD
+GitHub Actions pipeline:
+Push
+ ↓
+Lint
+ ↓
+Unit Tests
+ ↓
+Integration Tests
+ ↓
+Build
+ ↓
+Docker Build
+ ↓
+Security Scan
+ ↓
+Push Docker Image
+ ↓
+Deploy
+
+Files:
+.github/workflows/ci.yml
+.github/workflows/docker.yml
+.github/workflows/deploy.yml
+
+46. PHASE 39 — AWS Deployment
+Production infrastructure:
+Route 53
+    ↓
+CloudFront
+    ↓
+Load Balancer
+    ↓
+EKS
+    ↓
+Go API
+    ↓
+RDS PostgreSQL
+
+Redis → ElastiCache
+
+Videos → S3
+
+47. PHASE 40 — CDN
+Use CloudFront for:
+- HLS playlists
+- HLS segments
+- Thumbnails
+Flow:
+User
+ ↓
+CloudFront
+ ↓
+S3
+ ↓
+HLS Segment
+
+The Go API should not serve every video byte.
+48. PHASE 41 — Private Videos
+Support:
+PUBLIC
+UNLISTED
+PRIVATE
+
+For private videos:
+User
+ ↓
+Authenticate
+ ↓
+Authorize
+ ↓
+Generate signed URL
+ ↓
+CloudFront/S3
+
+49. PHASE 42 — Advanced Features
+Optional:
+- Playlists
+- Subscriptions
+- Notifications
+- Scheduled publishing
+- Video tags
+- Creator profiles
+- Video recommendations
+- Content moderation
+- Subtitle support
+- Multiple audio tracks
+- Video chapters
+- DRM
+- AI-generated captions
+50. Final Production Architecture
+                    ┌──────────────────┐
+                    │      USERS       │
+                    └────────┬─────────┘
+                             │
+                             ▼
+                    ┌──────────────────┐
+                    │    CloudFront    │
+                    └────────┬─────────┘
+                             │
+              ┌──────────────┴──────────────┐
+              │                             │
+              ▼                             ▼
+         SvelteKit                     HLS / S3
+              │
+              ▼
+         Load Balancer
+              │
+              ▼
+      ┌──────────────────┐
+      │      Go API      │
+      └───────┬──────────┘
+              │
+    ┌─────────┼───────────┐
+    │         │           │
+    ▼         ▼           ▼
+  RDS       Redis         S3
+    │         │
+    │         ▼
+    │    Redis Streams
+    │         │
+    │    ┌────┼────┐
+    │    ▼    ▼    ▼
+    │   W1   W2   W3
+    │    │    │    │
+    │    └────┼────┘
+    │         ▼
+    │       FFmpeg
+    │         │
+    └─────────┴──────► S3
+
+         OBSERVABILITY
+               │
+    ┌──────────┼──────────┐
+    ▼          ▼          ▼
+
+   Prometheus   Grafana   OpenTelemetry
+51. Development Order
+Do NOT start with Kubernetes.
+Follow this exact order:
+Stage 1
+Go
+PostgreSQL
+SvelteKit
+Docker
+
+Build:
+Authentication
+Database
+Dashboard
+
+Stage 2
+MinIO
+
+Build:
+Video upload
+Video metadata
+
+Stage 3
+Redis
+Worker
+FFmpeg
+
+Build:
+Upload
+ ↓
+Queue
+ ↓
+Worker
+ ↓
+FFmpeg
+ ↓
+Storage
+
+Stage 4
+HLS
+
+Build:
+360p
+720p
+1080p
+Adaptive streaming
+
+Stage 5
+Multiple workers
+Retries
+DLQ
+Idempotency
+
+Now the system becomes distributed.
+Stage 6
+Add:
+Search
+Likes
+Comments
+Watch history
+Analytics
+
+Stage 7
+Add:
+Caching
+Rate limiting
+Security
+
+Stage 8
+Add:
+Docker
+Kubernetes
+Autoscaling
+
+Stage 9
+Add:
+Prometheus
+Grafana
+OpenTelemetry
+
+Stage 10
+Deploy:
+AWS
+S3
+RDS
+ElastiCache
+EKS
+CloudFront
+Route 53
+
+52. Final Feature Checklist
+Authentication
+- [ ] Registration
+- [ ] Login
+- [ ] Logout
+- [ ] JWT
+- [ ] HTTP-only cookies
+- [ ] Password hashing
+- [ ] Authorization
+Video
+- [ ] Upload
+- [ ] Multipart upload
+- [ ] Resumable upload
+- [ ] Video metadata
+- [ ] Thumbnail
+- [ ] Delete
+- [ ] Visibility
+Processing
+- [ ] Redis queue
+- [ ] Worker
+- [ ] FFmpeg
+- [ ] FFprobe
+- [ ] 360p
+- [ ] 720p
+- [ ] 1080p
+- [ ] HLS
+- [ ] Retry
+- [ ] Dead-letter queue
+- [ ] Idempotency
+Streaming
+- [ ] HLS player
+- [ ] Adaptive bitrate
+- [ ] CDN
+- [ ] Signed URLs
+Social
+- [ ] Likes
+- [ ] Comments
+- [ ] Watch history
+- [ ] Playlists
+- [ ] Subscriptions
+Infrastructure
+- [ ] Docker
+- [ ] Docker Compose
+- [ ] Kubernetes
+- [ ] HPA
+- [ ] Health checks
+- [ ] Graceful shutdown
+Observability
+- [ ] Logging
+- [ ] Metrics
+- [ ] Prometheus
+- [ ] Grafana
+- [ ] OpenTelemetry
+- [ ] Distributed tracing
+Testing
+- [ ] Unit tests
+- [ ] Integration tests
+- [ ] E2E tests
+- [ ] Failure testing
+- [ ] Load testing
+DevOps
+- [ ] GitHub Actions
+- [ ] Docker registry
+- [ ] CI/CD
+- [ ] AWS
+- [ ] CloudFront
+- [ ] Monitoring
+53. Definition of Done
+The project is considered complete when:
+1. A user can register.
+2. A user can log in.
+3. A user can upload a large video.
+4. Uploads can resume after failure.
+5. Videos are stored in object storage.
+6. Upload completion creates a processing job.
+7. Redis distributes processing jobs.
+8. Multiple workers can process videos.
+9. FFmpeg generates multiple resolutions.
+10. HLS playlists are generated.
+11. Users can stream videos.
+12. Adaptive bitrate works.
+13. Failed jobs are retried.
+14. Permanently failed jobs enter a DLQ.
+15. Duplicate jobs do not cause corruption.
+16. Users can search videos.
+17. Users can like videos.
+18. Users can comment.
+19. Watch history is stored.
+20. Analytics are available.
+21. API responses are cached where appropriate.
+22. APIs are rate limited.
+23. Workers run in Docker.
+24. Workers run on Kubernetes.
+25. Workers can scale horizontally.
+26. Metrics are available in Prometheus.
+27. Dashboards are available in Grafana.
+28. Distributed traces are available.
+29. CI/CD automatically tests and builds the project.
+30. The production system is deployable to AWS.
+54. Resume Description
+StreamForge should eventually be described on your resume as:
+"Built StreamForge, a cloud-native distributed video processing and adaptive streaming platform using Go, SvelteKit, PostgreSQL, Redis Streams, FFmpeg, Docker and Kubernetes. Implemented resumable multipart uploads, asynchronous multi-worker transcoding, HLS adaptive streaming, fault-tolerant job processing, caching, rate limiting, observability and automated CI/CD."
+55. Core Skills Demonstrated
+The project demonstrates:
+Go
+SvelteKit
+TypeScript
+REST APIs
+PostgreSQL
+Redis
+Redis Streams
+FFmpeg
+HLS
+Object Storage
+AWS S3
+Docker
+Kubernetes
+Distributed Systems
+Microservices
+Concurrency
+Caching
+Rate Limiting
+Authentication
+Authorization
+Observability
+Prometheus
+Grafana
+OpenTelemetry
+CI/CD
+GitHub Actions
+Cloud Architecture
+System Design
+56. Recommended Build Strategy
+Do not attempt to implement everything simultaneously.
+The first working version should be:
+Browser
+   ↓
+SvelteKit
+   ↓
+Go API
+   ↓
+MinIO
+   ↓
+Redis
+   ↓
+Worker
+   ↓
+FFmpeg
+   ↓
+HLS
+   ↓
+Video Player
+Once this works perfectly, add:
+PostgreSQL
+   ↓
+Retries
+   ↓
+Multiple Workers
+   ↓
+Caching
+   ↓
+Security
+   ↓
+Kubernetes
+   ↓
+Observability
+   ↓
+AWS
+This keeps the project manageable while allowing the final architecture to become highly advanced.
+
+## ⭐ Name recommendation
+
+I'd stick with:
+
+# **StreamForge**
+
+**Full name:**  
+**StreamForge — Distributed Video Processing & Adaptive Streaming Platform**
+
+**Tagline:**  
+> **Upload once. Process anywhere. Stream everywhere.**
+
+A few alternatives if you want something more startup-like:
+
+- **StreamForge** ⭐⭐⭐⭐⭐
+- **VidMesh** ⭐⭐⭐⭐⭐
+- **TranscodeX** ⭐⭐⭐⭐
+- **StreamGrid** ⭐⭐⭐⭐
+- **VidFlux** ⭐⭐⭐⭐
+- **ForgeStream** ⭐⭐⭐⭐
+- **MediaMesh** ⭐⭐⭐⭐

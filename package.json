@@ -1,0 +1,8 @@
+{
+  "name": "streamforge",
+  "private": true,
+  "scripts": {
+    "build": "npm --prefix apps/web run build",
+    "test": "npm --prefix apps/web test"
+  }
+}
