@@ -7,4 +7,14 @@ node_modules
 dist
 build
 coverage
+playwright-report
+test-results
 *.log
+.git
+.github
+apps/web/node_modules
+apps/web/dist
+apps/web/playwright-report
+apps/web/test-results
+tmp
+target

@@ -1,11 +1,14 @@
 .env
 .env.*
 !.env.example
+k8s/streamforge-secrets.env
 
 bin/
 dist/
 build/
 coverage/
+playwright-report/
+test-results/
 *.exe
 *.test
 *.out

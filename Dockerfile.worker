@@ -1,0 +1,15 @@
+FROM golang:1.22-alpine AS builder
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/streamforge-worker ./apps/worker
+
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates ffmpeg \
+    && addgroup -S streamforge \
+    && adduser -S -G streamforge streamforge
+COPY --from=builder /out/streamforge-worker /usr/local/bin/streamforge-worker
+USER streamforge
+ENTRYPOINT ["/usr/local/bin/streamforge-worker"]

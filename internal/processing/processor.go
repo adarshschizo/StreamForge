@@ -89,7 +89,7 @@ func (p StorageProcessor) Process(ctx context.Context, job queue.Job) error {
 	return err
 }
 
-func (p StorageProcessor) ProcessResult(ctx context.Context, job queue.Job) (Result, error) {
+func (p StorageProcessor) ProcessResult(ctx context.Context, job queue.Job) (result Result, err error) {
 	if p.Source == nil || p.Destination == nil {
 		return Result{}, errors.New("media storage is not configured")
 	}
@@ -97,13 +97,23 @@ func (p StorageProcessor) ProcessResult(ctx context.Context, job queue.Job) (Res
 	if err := os.MkdirAll(workDir, 0o750); err != nil {
 		return Result{}, fmt.Errorf("create worker directory: %w", err)
 	}
+	defer func() {
+		if cleanupErr := os.RemoveAll(workDir); cleanupErr != nil {
+			cleanupErr = fmt.Errorf("remove worker temporary files: %w", cleanupErr)
+			if err == nil {
+				err = cleanupErr
+			} else {
+				err = errors.Join(err, cleanupErr)
+			}
+		}
+	}()
 	inputPath := filepath.Join(workDir, "original")
 	if err := p.Source.Download(ctx, job.InputKey, inputPath); err != nil {
 		return Result{}, fmt.Errorf("download original: %w", err)
 	}
 	job.InputKey = inputPath
 	p.Processor.OutputRoot = workDir
-	result, err := p.Processor.ProcessResult(ctx, job)
+	result, err = p.Processor.ProcessResult(ctx, job)
 	if err != nil {
 		return Result{}, err
 	}

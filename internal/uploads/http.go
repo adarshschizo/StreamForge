@@ -16,6 +16,8 @@ import (
 	"github.com/yourusername/streamforge/internal/queue"
 	"github.com/yourusername/streamforge/internal/storage"
 	"github.com/yourusername/streamforge/internal/videos"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 type HTTPHandler struct {
@@ -246,6 +248,10 @@ func (h *HTTPHandler) finishUpload(w http.ResponseWriter, r *http.Request, video
 	}
 	if h.queue != nil {
 		job := queue.Job{ID: uuid.NewString(), VideoID: video.ID, InputKey: object.Key}
+		carrier := propagation.MapCarrier{}
+		otel.GetTextMapPropagator().Inject(r.Context(), carrier)
+		job.TraceParent = carrier.Get("traceparent")
+		job.TraceState = carrier.Get("tracestate")
 		if h.jobs != nil {
 			if err := h.jobs.Create(r.Context(), job); err != nil {
 				writeError(w, http.StatusBadGateway, "processing job unavailable")

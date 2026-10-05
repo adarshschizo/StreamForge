@@ -208,6 +208,13 @@ func NewS3(endpoint, accessKey, secretKey, bucket string, useSSL bool) (*S3Servi
 	return &S3Service{client: client, bucket: bucket, multipartRoot: root}, nil
 }
 
+func (s *S3Service) Close() error {
+	if err := os.RemoveAll(s.multipartRoot); err != nil {
+		return fmt.Errorf("remove multipart workspace: %w", err)
+	}
+	return nil
+}
+
 func (s *S3Service) Initiate(ctx context.Context, key string) (Upload, error) {
 	if err := s.ensureBucket(ctx); err != nil {
 		return Upload{}, err
@@ -223,7 +230,13 @@ func (s *S3Service) Initiate(ctx context.Context, key string) (Upload, error) {
 func (s *S3Service) Complete(ctx context.Context, key string) (Object, error) {
 	info, err := s.client.StatObject(ctx, s.bucket, key, minio.StatObjectOptions{})
 	if err != nil {
-		return Object{}, ErrObjectNotFound
+		response := minio.ToErrorResponse(err)
+		switch response.Code {
+		case "NoSuchKey", "NoSuchObject", "NotFound":
+			return Object{}, ErrObjectNotFound
+		default:
+			return Object{}, fmt.Errorf("stat object: %w", err)
+		}
 	}
 	return Object{Key: key, Size: info.Size}, nil
 }

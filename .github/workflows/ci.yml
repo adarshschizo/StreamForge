@@ -1,0 +1,171 @@
+name: StreamForge CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: streamforge_test
+          POSTGRES_USER: streamforge
+          POSTGRES_PASSWORD: streamforge
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U streamforge -d streamforge_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Test Go packages
+        env:
+          STREAMFORGE_TEST_REDIS_URL: redis://localhost:6379/0
+          STREAMFORGE_TEST_DATABASE_URL: postgres://streamforge:streamforge@localhost:5432/streamforge_test?sslmode=disable
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ffmpeg
+          docker run --detach --name streamforge-test-minio \
+            --publish 9000:9000 \
+            --env MINIO_ROOT_USER=streamforge \
+            --env MINIO_ROOT_PASSWORD=streamforge-secret \
+            coollabsio/minio@sha256:69b55a1c1c5dc285ce04db96689f5b2102317fc77a50680a1874ca6efd1c87f9 server /data --console-address ":9001"
+          trap 'docker rm --force streamforge-test-minio >/dev/null 2>&1 || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://localhost:9000/minio/health/live > /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl --fail http://localhost:9000/minio/health/ready
+          STREAMFORGE_REQUIRE_FFMPEG_TEST=true \
+            STREAMFORGE_TEST_MINIO_ENDPOINT=http://localhost:9000 \
+            STREAMFORGE_TEST_MINIO_ACCESS_KEY=streamforge \
+            STREAMFORGE_TEST_MINIO_SECRET_KEY=streamforge-secret \
+            go test ./...
+      - name: Build frontend
+        run: npm ci --prefix apps/web && npm --prefix apps/web run build
+      - name: Install browser for end-to-end tests
+        run: npx --prefix apps/web playwright install --with-deps chromium
+      - name: Test frontend
+        run: npm --prefix apps/web test
+
+  container-build:
+    runs-on: ubuntu-latest
+    needs: verify
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.api
+          push: false
+          tags: ghcr.io/adarshschizo/streamforge-api:${{ github.sha }}
+      - name: Build worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.worker
+          push: false
+          tags: ghcr.io/adarshschizo/streamforge-worker:${{ github.sha }}
+      - name: Build web image
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/web
+          file: apps/web/Dockerfile
+          push: false
+          tags: ghcr.io/adarshschizo/streamforge-web:${{ github.sha }}
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    needs: verify
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.api
+          push: true
+          tags: ghcr.io/adarshschizo/streamforge-api:${{ github.ref_name }}
+      - name: Build and publish worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.worker
+          push: true
+          tags: ghcr.io/adarshschizo/streamforge-worker:${{ github.ref_name }}
+      - name: Build and publish web image
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/web
+          file: apps/web/Dockerfile
+          push: true
+          tags: ghcr.io/adarshschizo/streamforge-web:${{ github.ref_name }}
+
+  load-smoke:
+    runs-on: ubuntu-latest
+    needs: verify
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install k6
+        uses: grafana/setup-k6-action@v1
+      - name: Run k6 smoke test
+        run: |
+          go run ./apps/api > /tmp/streamforge-api.log 2>&1 &
+          api_pid=$!
+          trap 'kill "$api_pid"' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://localhost:8080/health > /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl --fail http://localhost:8080/health
+          k6 run tests/load/api-smoke.js

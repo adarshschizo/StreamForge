@@ -4,6 +4,8 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/yourusername/streamforge/internal/telemetry"
 )
 
 type statusRecorder struct {
@@ -28,11 +30,13 @@ func RequestLogger(logger *slog.Logger, next http.Handler) http.Handler {
 		start := time.Now()
 		recorder := &statusRecorder{ResponseWriter: w}
 		next.ServeHTTP(recorder, r)
+		traceID := telemetry.TraceIDFromContext(r.Context())
 		logger.Info("http request",
 			"method", r.Method,
 			"path", r.URL.Path,
 			"status", recorder.status,
 			"duration_ms", time.Since(start).Milliseconds(),
+			"trace_id", traceID,
 		)
 	})
 }

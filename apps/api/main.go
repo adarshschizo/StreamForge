@@ -12,22 +12,36 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/yourusername/streamforge/internal/analytics"
 	"github.com/yourusername/streamforge/internal/auth"
 	"github.com/yourusername/streamforge/internal/comments"
 	"github.com/yourusername/streamforge/internal/config"
+	"github.com/yourusername/streamforge/internal/history"
 	"github.com/yourusername/streamforge/internal/likes"
+	"github.com/yourusername/streamforge/internal/metrics"
 	"github.com/yourusername/streamforge/internal/middleware"
+	"github.com/yourusername/streamforge/internal/playlists"
 	"github.com/yourusername/streamforge/internal/processing"
 	"github.com/yourusername/streamforge/internal/queue"
 	"github.com/yourusername/streamforge/internal/storage"
 	"github.com/yourusername/streamforge/internal/streaming"
+	"github.com/yourusername/streamforge/internal/subscriptions"
+	"github.com/yourusername/streamforge/internal/telemetry"
 	"github.com/yourusername/streamforge/internal/uploads"
 	"github.com/yourusername/streamforge/internal/videos"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 func main() {
 	cfg := config.Load()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	shutdownTrace, err := telemetry.Init(logger, cfg.OTELServiceName+"-api", cfg.OTELExporterEndpoint, cfg.OTELEnabled)
+	if err != nil {
+		logger.Error("telemetry init failed", "error", err)
+		os.Exit(1)
+	}
+	defer shutdownTrace()
+
 	handler, cleanup := newRouterWithCleanup(cfg, logger)
 	defer cleanup()
 
@@ -68,11 +82,16 @@ func newRouter(cfg config.Config, logger *slog.Logger) http.Handler {
 
 func newRouterWithCleanup(cfg config.Config, logger *slog.Logger) (http.Handler, func()) {
 	mux := http.NewServeMux()
+	apiMetrics := metrics.New()
 	var cleanup func()
 	var authRepository auth.Repository = auth.NewMemoryRepository()
 	var videoRepository videos.Repository = videos.NewMemoryRepository()
 	var likeRepository likes.Repository = likes.NewMemoryRepositoryWithMutex()
 	var commentRepository comments.Repository = comments.NewMemoryRepository()
+	var historyRepository history.Repository
+	var playlistRepository playlists.Repository = playlists.NewMemoryRepository(videoRepository)
+	var subscriptionRepository subscriptions.Repository = subscriptions.NewMemoryRepository()
+	var analyticsRepository analytics.Repository
 	var jobStore uploads.JobStore
 	var multipartSessions uploads.MultipartSessionStore
 	var statusStore processing.StatusStore = processing.NoopStatusStore{}
@@ -95,9 +114,19 @@ func newRouterWithCleanup(cfg config.Config, logger *slog.Logger) (http.Handler,
 		videoRepository = videos.NewPostgresRepository(pool)
 		likeRepository = likes.NewPostgresRepository(pool)
 		commentRepository = comments.NewPostgresRepository(pool)
+		historyRepository = history.NewPostgresRepository(pool)
+		analyticsRepository = analytics.NewPostgresRepository(pool)
+		playlistRepository = playlists.NewPostgresRepository(pool)
+		subscriptionRepository = subscriptions.NewPostgresRepository(pool)
 		jobStore = processing.NewPostgresStatusStore(pool)
 		statusStore = jobStore.(processing.StatusStore)
 		multipartSessions = uploads.NewMultipartSessionStore(pool)
+	}
+	if historyRepository == nil {
+		historyRepository = history.NewMemoryRepository(videoRepository)
+	}
+	if analyticsRepository == nil {
+		analyticsRepository = analytics.NewMemoryRepository(videoRepository)
 	}
 	authService, err := auth.NewService(authRepository, cfg.JWTSecret, 24*time.Hour)
 	if err != nil {
@@ -108,19 +137,39 @@ func newRouterWithCleanup(cfg config.Config, logger *slog.Logger) (http.Handler,
 	videoHandler := videos.NewHTTPHandler(videoRepository)
 	likeHandler := likes.NewHTTPHandler(likeRepository, videoRepository)
 	commentHandler := comments.NewHTTPHandler(commentRepository, videoRepository)
+	playlistHandler := playlists.NewHTTPHandler(playlistRepository)
+	subscriptionHandler := subscriptions.NewHTTPHandler(subscriptionRepository)
 	var storageService storage.Service = storage.NewMemoryService()
 	var playbackStore storage.PlaybackStore
+	addStorageCleanup := func(store *storage.S3Service, name string) {
+		previousCleanup := cleanup
+		cleanup = func() {
+			if closeErr := store.Close(); closeErr != nil {
+				logger.Error(name+" object storage cleanup failed", "error", closeErr)
+			}
+			if previousCleanup != nil {
+				previousCleanup()
+			}
+		}
+	}
 	if cfg.StorageMode == "s3" {
-		storageService, err = storage.NewS3(cfg.StorageURL, cfg.StorageAccessKey, cfg.StorageSecretKey, storage.OriginalsBucket, cfg.StorageUseSSL)
+		originalsStore, storeErr := storage.NewS3(cfg.StorageURL, cfg.StorageAccessKey, cfg.StorageSecretKey, storage.OriginalsBucket, cfg.StorageUseSSL)
+		err = storeErr
 		if err != nil {
 			logger.Error("object storage setup failed", "error", err)
 			panic(err)
 		}
-		playbackStore, err = storage.NewS3(cfg.StorageURL, cfg.StorageAccessKey, cfg.StorageSecretKey, storage.ProcessedBucket, cfg.StorageUseSSL)
+		addStorageCleanup(originalsStore, "original")
+		storageService = originalsStore
+
+		processedStore, storeErr := storage.NewS3(cfg.StorageURL, cfg.StorageAccessKey, cfg.StorageSecretKey, storage.ProcessedBucket, cfg.StorageUseSSL)
+		err = storeErr
 		if err != nil {
 			logger.Error("processed storage setup failed", "error", err)
 			panic(err)
 		}
+		addStorageCleanup(processedStore, "processed")
+		playbackStore = processedStore
 	}
 	var publisher uploads.Publisher = queue.NewMemoryQueue()
 	if cfg.QueueMode == "redis" {
@@ -132,7 +181,10 @@ func newRouterWithCleanup(cfg config.Config, logger *slog.Logger) (http.Handler,
 	}
 	uploadHandler := uploads.NewHTTPHandler(videoRepository, storageService, publisher, jobStore)
 	uploadHandler.SetMultipartSessionStore(multipartSessions)
-	streamHandler := streaming.NewHTTPHandler(videoRepository, playbackStore)
+	streamHandler := streaming.NewHTTPHandler(videoRepository, playbackStore, historyRepository)
+	streamHandler.SetAnalytics(analyticsRepository)
+	analyticsHandler := analytics.NewHTTPHandler(analyticsRepository)
+	historyHandler := history.NewHTTPHandler(historyRepository)
 	processingHandler := processing.NewHTTPHandler(videoRepository, statusStore)
 	requireAuth := func(handler http.Handler) http.Handler {
 		return middleware.RequireAuth(authService, handler)
@@ -147,6 +199,7 @@ func newRouterWithCleanup(cfg config.Config, logger *slog.Logger) (http.Handler,
 	mux.HandleFunc("GET /version", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"version": cfg.Version, "environment": cfg.Environment})
 	})
+	mux.Handle("GET /metrics", apiMetrics)
 	mux.HandleFunc("POST /auth/register", authHandler.Register)
 	mux.HandleFunc("POST /auth/login", authHandler.Login)
 	mux.HandleFunc("POST /auth/logout", authHandler.Logout)
@@ -159,6 +212,17 @@ func newRouterWithCleanup(cfg config.Config, logger *slog.Logger) (http.Handler,
 	mux.HandleFunc("GET /videos/{id}/comments", commentHandler.List)
 	mux.Handle("POST /videos/{id}/comments", requireAuth(http.HandlerFunc(commentHandler.Create)))
 	mux.Handle("DELETE /videos/{id}/comments/{commentID}", requireAuth(http.HandlerFunc(commentHandler.Delete)))
+	mux.Handle("GET /history", requireAuth(http.HandlerFunc(historyHandler.List)))
+	mux.Handle("GET /analytics/videos", requireAuth(http.HandlerFunc(analyticsHandler.Summary)))
+	mux.Handle("DELETE /history/{id}", requireAuth(http.HandlerFunc(historyHandler.Clear)))
+	mux.Handle("GET /playlists", requireAuth(http.HandlerFunc(playlistHandler.List)))
+	mux.Handle("POST /playlists", requireAuth(http.HandlerFunc(playlistHandler.Create)))
+	mux.Handle("GET /playlists/{id}", requireAuth(http.HandlerFunc(playlistHandler.Get)))
+	mux.Handle("POST /playlists/{id}/videos", requireAuth(http.HandlerFunc(playlistHandler.Add)))
+	mux.Handle("DELETE /playlists/{id}/videos", requireAuth(http.HandlerFunc(playlistHandler.Remove)))
+	mux.Handle("GET /subscriptions", requireAuth(http.HandlerFunc(subscriptionHandler.List)))
+	mux.Handle("POST /subscriptions/{creatorID}", requireAuth(http.HandlerFunc(subscriptionHandler.Subscribe)))
+	mux.Handle("DELETE /subscriptions/{creatorID}", requireAuth(http.HandlerFunc(subscriptionHandler.Unsubscribe)))
 	mux.Handle("GET /videos/{id}", requireAuth(http.HandlerFunc(videoHandler.Get)))
 	mux.Handle("PATCH /videos/{id}", requireAuth(http.HandlerFunc(videoHandler.Update)))
 	mux.Handle("DELETE /videos/{id}", requireAuth(http.HandlerFunc(videoHandler.Delete)))
@@ -176,9 +240,19 @@ func newRouterWithCleanup(cfg config.Config, logger *slog.Logger) (http.Handler,
 	if cleanup == nil {
 		cleanup = func() {}
 	}
-	protected := middleware.NewRateLimiter(120, time.Minute).Middleware(mux)
+	rateLimiter := middleware.NewRateLimiter(120, time.Minute)
+	var rateLimited http.Handler = rateLimiter.Middleware(mux)
+	if cfg.QueueMode == "redis" {
+		if redisLimiter, limiterErr := middleware.NewRedisRateLimiter(cfg.RedisURL, 120, time.Minute); limiterErr == nil {
+			rateLimited = redisLimiter.Middleware(mux)
+		} else {
+			logger.Warn("redis rate limiter unavailable; using in-memory limiter", "error", limiterErr)
+		}
+	}
+	protected := apiMetrics.Middleware(rateLimited)
 	protected = middleware.SecurityHeaders(protected)
-	return middleware.RequestLogger(logger, middleware.LocalCORS(protected)), cleanup
+	traced := middleware.RequestLogger(logger, middleware.LocalCORS(protected))
+	return otelhttp.NewHandler(traced, "http.server"), cleanup
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

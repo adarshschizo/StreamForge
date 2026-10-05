@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: streamforge-config
+  namespace: streamforge
+data:
+  STREAMFORGE_API_ADDR: ":8080"
+  STREAMFORGE_DATABASE_MODE: postgres
+  STREAMFORGE_QUEUE_MODE: redis
+  STREAMFORGE_STORAGE_MODE: s3
+  STREAMFORGE_STORAGE_URL: http://streamforge-minio:9000
+  STREAMFORGE_FFMPEG_PATH: /usr/bin/ffmpeg
+  STREAMFORGE_FFPROBE_PATH: /usr/bin/ffprobe
+  STREAMFORGE_OTEL_ENABLED: "false"
+  STREAMFORGE_OTEL_SERVICE_NAME: streamforge
+  STREAMFORGE_OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318

@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: streamforge-worker
+  namespace: streamforge
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: streamforge-worker
+  template:
+    metadata:
+      labels:
+        app: streamforge-worker
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/adarshschizo/streamforge-worker:REPLACE_WITH_RELEASE_TAG
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: streamforge-config
+            - secretRef:
+                name: streamforge-secrets
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi

@@ -40,6 +40,9 @@ function renderAuth(message = '') {
     document.querySelectorAll<HTMLElement>('.register-only').forEach((el) => el.classList.toggle('hidden', mode === 'login'));
     document.querySelectorAll<HTMLElement>('.login-only').forEach((el) => el.classList.toggle('hidden', mode !== 'login'));
     document.querySelectorAll<HTMLButtonElement>('.tab').forEach((tab) => tab.classList.toggle('active', tab.dataset.mode === mode));
+    document.querySelector<HTMLInputElement>('[name="login"]')!.required = mode === 'login';
+    document.querySelector<HTMLInputElement>('[name="email"]')!.required = mode === 'register';
+    document.querySelector<HTMLInputElement>('[name="username"]')!.required = mode === 'register';
   };
   document.querySelectorAll<HTMLButtonElement>('.tab').forEach((tab) => tab.onclick = () => { mode = tab.dataset.mode ?? 'login'; syncMode(); });
   document.querySelector<HTMLFormElement>('#auth-form')!.onsubmit = async (event) => {
@@ -145,7 +148,8 @@ async function playVideo(videoID: string) {
 
 async function uploadVideo(event: SubmitEvent) {
   event.preventDefault();
-  const form = new FormData(event.currentTarget as HTMLFormElement);
+  const formElement = event.currentTarget as HTMLFormElement;
+  const form = new FormData(formElement);
   const file = form.get('file');
   const message = document.querySelector<HTMLParagraphElement>('#upload-form .form-message');
   try {
@@ -165,7 +169,7 @@ async function uploadVideo(event: SubmitEvent) {
       await request(`/videos/${video.id}/upload/complete`, { method: 'POST' });
     }
     if (message) message.textContent = 'Uploaded. Processing has started.';
-    (event.currentTarget as HTMLFormElement).reset();
+    formElement.reset();
     await loadVideos();
   } catch (error) {
     if (message) message.textContent = error instanceof Error ? error.message : 'Upload failed';

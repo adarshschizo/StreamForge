@@ -1,0 +1,50 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    env_file: .env
+    environment:
+      STREAMFORGE_API_ADDR: ":8080"
+      STREAMFORGE_DATABASE_MODE: postgres
+      STREAMFORGE_QUEUE_MODE: redis
+      STREAMFORGE_STORAGE_MODE: s3
+      STREAMFORGE_DATABASE_URL: postgres://streamforge:streamforge@postgres:5432/streamforge?sslmode=disable
+      STREAMFORGE_REDIS_URL: redis://redis:6379/0
+      STREAMFORGE_STORAGE_URL: http://minio:9000
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    env_file: .env
+    environment:
+      STREAMFORGE_DATABASE_MODE: postgres
+      STREAMFORGE_QUEUE_MODE: redis
+      STREAMFORGE_STORAGE_MODE: s3
+      STREAMFORGE_DATABASE_URL: postgres://streamforge:streamforge@postgres:5432/streamforge?sslmode=disable
+      STREAMFORGE_REDIS_URL: redis://redis:6379/0
+      STREAMFORGE_STORAGE_URL: http://minio:9000
+      STREAMFORGE_FFMPEG_PATH: /usr/bin/ffmpeg
+      STREAMFORGE_FFPROBE_PATH: /usr/bin/ffprobe
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    ports:
+      - "5173:80"
+    depends_on:
+      - api

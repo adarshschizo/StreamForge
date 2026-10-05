@@ -20,6 +20,8 @@ type StatusStore interface {
 	Fail(context.Context, queue.Job, error) error
 }
 
+var ErrDuplicateJob = errors.New("processing job already claimed or finished")
+
 type NoopStatusStore struct{}
 
 func (NoopStatusStore) Create(context.Context, queue.Job) error                      { return nil }
@@ -61,21 +63,42 @@ func (s *PostgresStatusStore) Create(ctx context.Context, job queue.Job) error {
 }
 
 func (s *PostgresStatusStore) Start(ctx context.Context, job queue.Job, workerID string) error {
-	_, err := s.db.Exec(ctx, `
-		UPDATE processing_jobs
-		SET status = 'PROCESSING', attempts = $1, worker_id = $2,
-			started_at = COALESCE(started_at, now()), updated_at = now()
-		WHERE id = $3
-	`, job.Attempts+1, workerID, job.ID)
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("begin processing job claim: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	tag, err := tx.Exec(ctx, `
+		UPDATE processing_jobs
+		SET status = 'PROCESSING',
+			attempts = CASE WHEN $4 THEN attempts + 1 ELSE $1 END,
+			worker_id = $2,
+			started_at = COALESCE(started_at, now()), updated_at = now()
+		WHERE id = $3 AND (status = 'PENDING' OR ($4 AND status = 'PROCESSING'))
+	`, job.Attempts+1, workerID, job.ID, job.Reclaimed)
+	if err != nil {
+		return fmt.Errorf("claim processing job: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		var status string
+		if err := tx.QueryRow(ctx, `SELECT status FROM processing_jobs WHERE id = $1`, job.ID).Scan(&status); err != nil {
+			return fmt.Errorf("read unclaimed processing job status: %w", err)
+		}
+		if status == "PROCESSING" || status == "COMPLETED" || status == "FAILED" {
+			return ErrDuplicateJob
+		}
+		return fmt.Errorf("processing job %q is not claimable from status %q", job.ID, status)
 	}
 
-	_, err = s.db.Exec(ctx, `
+	_, err = tx.Exec(ctx, `
 		UPDATE videos SET status = $1, updated_at = now()
 		WHERE id = $2 AND status IN ($3, $4, $5)
 	`, videos.StatusProcessing, job.VideoID, videos.StatusUploaded, videos.StatusProcessing, videos.StatusFailed)
-	return err
+	if err != nil {
+		return fmt.Errorf("set video processing status: %w", err)
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *PostgresStatusStore) UpdateProgress(ctx context.Context, job queue.Job, progress int, stage string) error {
@@ -136,23 +159,34 @@ func (s *PostgresStatusStore) Fail(ctx context.Context, job queue.Job, cause err
 	if cause != nil {
 		message = cause.Error()
 	}
-	_, err := s.db.Exec(ctx, `
-		UPDATE processing_jobs
-		SET status = CASE WHEN $1 >= $2 THEN 'FAILED' ELSE 'PENDING' END,
-			attempts = $1, progress = CASE WHEN $1 >= $2 THEN progress ELSE 0 END,
-			stage = CASE WHEN $1 >= $2 THEN 'failed' ELSE 'queued' END,
-			error_message = $3, updated_at = now(),
-			completed_at = CASE WHEN $1 >= $2 THEN now() ELSE completed_at END
-		WHERE id = $4
-	`, job.Attempts+1, queue.MaxAttempts, message, job.ID)
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("begin failed processing job update: %w", err)
 	}
-	if job.Attempts+1 >= queue.MaxAttempts {
-		_, err = s.db.Exec(ctx, `UPDATE videos SET status = $1, updated_at = now() WHERE id = $2`,
+	defer tx.Rollback(ctx)
+
+	var status string
+	err = tx.QueryRow(ctx, `
+		UPDATE processing_jobs
+		SET status = CASE WHEN attempts >= $1 THEN 'FAILED' ELSE 'PENDING' END,
+			progress = CASE WHEN attempts >= $1 THEN progress ELSE 0 END,
+			stage = CASE WHEN attempts >= $1 THEN 'failed' ELSE 'queued' END,
+			error_message = $2, updated_at = now(),
+			completed_at = CASE WHEN attempts >= $1 THEN now() ELSE completed_at END
+		WHERE id = $3
+		RETURNING status
+	`, queue.MaxAttempts, message, job.ID).Scan(&status)
+	if err != nil {
+		return fmt.Errorf("update failed processing job: %w", err)
+	}
+	if status == "FAILED" {
+		_, err = tx.Exec(ctx, `UPDATE videos SET status = $1, updated_at = now() WHERE id = $2`,
 			videos.StatusFailed, job.VideoID)
+		if err != nil {
+			return fmt.Errorf("mark video processing as failed: %w", err)
+		}
 	}
-	return err
+	return tx.Commit(ctx)
 }
 
 var _ StatusStore = (*PostgresStatusStore)(nil)

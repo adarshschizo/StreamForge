@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: streamforge-api
+  namespace: streamforge
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: streamforge-api
+  template:
+    metadata:
+      labels:
+        app: streamforge-api
+    spec:
+      containers:
+        - name: api
+          image: ghcr.io/adarshschizo/streamforge-api:REPLACE_WITH_RELEASE_TAG
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: streamforge-config
+            - secretRef:
+                name: streamforge-secrets
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: streamforge-api
+  namespace: streamforge
+spec:
+  selector:
+    app: streamforge-api
+  ports:
+    - port: 8080
+      name: http
+      targetPort: 8080

@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: streamforge-web
+  namespace: streamforge
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: streamforge-web
+  template:
+    metadata:
+      labels:
+        app: streamforge-web
+    spec:
+      containers:
+        - name: web
+          image: ghcr.io/adarshschizo/streamforge-web:REPLACE_WITH_RELEASE_TAG
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 80
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 80
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: streamforge-web
+  namespace: streamforge
+spec:
+  type: LoadBalancer
+  selector:
+    app: streamforge-web
+  ports:
+    - port: 80
+      targetPort: 80

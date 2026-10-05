@@ -8,7 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yourusername/streamforge/internal/analytics"
 	"github.com/yourusername/streamforge/internal/auth"
+	"github.com/yourusername/streamforge/internal/history"
 	"github.com/yourusername/streamforge/internal/videos"
 )
 
@@ -17,12 +19,22 @@ type URLProvider interface {
 }
 
 type HTTPHandler struct {
-	videos  videos.Repository
-	storage URLProvider
+	videos    videos.Repository
+	storage   URLProvider
+	history   history.Repository
+	analytics analytics.Repository
 }
 
-func NewHTTPHandler(videoRepository videos.Repository, provider URLProvider) *HTTPHandler {
-	return &HTTPHandler{videos: videoRepository, storage: provider}
+func NewHTTPHandler(videoRepository videos.Repository, provider URLProvider, historyRepositories ...history.Repository) *HTTPHandler {
+	handler := &HTTPHandler{videos: videoRepository, storage: provider}
+	if len(historyRepositories) > 0 {
+		handler.history = historyRepositories[0]
+	}
+	return handler
+}
+
+func (h *HTTPHandler) SetAnalytics(repository analytics.Repository) {
+	h.analytics = repository
 }
 
 func (h *HTTPHandler) Stream(w http.ResponseWriter, r *http.Request) {
@@ -40,6 +52,12 @@ func (h *HTTPHandler) Stream(w http.ResponseWriter, r *http.Request) {
 		}
 		writeError(w, http.StatusBadRequest, "video lookup failed")
 		return
+	}
+	if h.history != nil {
+		_ = h.history.Record(user.ID, video.ID)
+	}
+	if h.analytics != nil {
+		_ = h.analytics.Record(video.ID, user.ID)
 	}
 	h.writePlaylist(w, r, video)
 }

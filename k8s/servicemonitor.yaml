@@ -1,0 +1,15 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: streamforge-api
+  namespace: streamforge
+  labels:
+    app.kubernetes.io/part-of: streamforge
+spec:
+  selector:
+    matchLabels:
+      app: streamforge-api
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s

@@ -68,9 +68,18 @@ New videos begin in the `UPLOADING` state and default to `PRIVATE` visibility.
 The worker consumes Redis Stream `video-processing` through consumer group
 `streamforge-workers`. Jobs contain `job_id`, `video_id`, `input_key`, and
 `attempts`. Failed jobs are retried up to three attempts; permanent failures
-are written to `video-processing-dlq`. The worker now uses FFprobe to inspect the source and FFmpeg to generate a
+are written to `video-processing-dlq`. Jobs left pending by a crashed worker
+are reclaimed after 30 seconds. Active processing jobs refresh their Redis
+claim every 10 seconds so long transcodes are not reclaimed as abandoned.
+Retries and dead-letter publication happen before acknowledging the failed
+message to avoid losing the job if publishing fails. This provides at-least-
+once delivery. With PostgreSQL enabled, an atomic job-status claim prevents
+concurrent duplicate deliveries from processing the same active/completed job;
+a reclaimed job can take over the previous worker's stale `PROCESSING` state.
+Object storage writes remain keyed by video and should be idempotent.
+The worker uses FFprobe to inspect the source and FFmpeg to generate a
 thumbnail, 360p/720p/1080p HLS renditions supported by the source height, and
-a master playlist. Configure the executable paths with
+a master playlist. Configure executable paths with
 `STREAMFORGE_FFPROBE_PATH` and `STREAMFORGE_FFMPEG_PATH`.
 
 ### Upload endpoints
@@ -174,6 +183,141 @@ Ready public and unlisted videos support comments through
 `DELETE /videos/{id}/comments/{commentID}`. Apply
 `migrations/005_comments.sql` to existing PostgreSQL volumes. Private videos
 do not expose comments.
+
+### Watch history
+
+Authenticated playback records the video in watch history. Use
+`GET /history?limit=50` to list entries and `DELETE /history/{videoID}` to
+remove one. Apply `migrations/006_watch_history.sql` to existing PostgreSQL
+volumes.
+
+### Analytics
+
+Authenticated playback records view events. Owners can query aggregated counts
+with `GET /analytics/videos`. Apply `migrations/007_analytics.sql` to existing
+PostgreSQL volumes.
+
+### Playlists
+
+Authenticated users can create and manage playlists with `GET /playlists`,
+`POST /playlists`, `GET /playlists/{id}`, `POST /playlists/{id}/videos`, and
+`DELETE /playlists/{id}/videos`. Apply `migrations/008_playlists.sql` to
+existing PostgreSQL volumes.
+
+### Subscriptions
+
+Authenticated users can follow creators with
+`POST /subscriptions/{creatorID}`, list followed creators with
+`GET /subscriptions`, and unfollow with `DELETE /subscriptions/{creatorID}`.
+Apply `migrations/009_subscriptions.sql` to existing PostgreSQL volumes.
+
+### Production containers
+
+Production images are defined by `Dockerfile.api`, `Dockerfile.worker`, and
+`apps/web/Dockerfile`. Start the local production-shaped stack with:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build
+```
+
+The API is exposed on port `8080`, the web container on port `5173`, and the
+worker uses the Redis queue and FFmpeg runtime. GitHub Actions in
+`.github/workflows/ci.yml` runs Go tests, frontend checks, and all three
+container builds. Version tags publish the images to GitHub Container Registry
+under `ghcr.io/adarshschizo/streamforge-*`.
+
+### Kubernetes delivery
+
+Kubernetes templates are under `k8s/`. Before deployment, replace
+`REPLACE_WITH_RELEASE_TAG` in `k8s/api.yaml`, `k8s/worker.yaml`, and
+`k8s/web.yaml` with a version tag that has been published to GHCR. Create the
+namespace and a private copy of the secret environment template:
+
+```powershell
+kubectl apply -f k8s/namespace.yaml
+Copy-Item k8s/streamforge-secrets.env.example k8s/streamforge-secrets.env
+```
+
+Edit `k8s/streamforge-secrets.env` with real credentials before creating the
+Secret. The completed file is git-ignored and must not be committed.
+
+```powershell
+kubectl create secret generic streamforge-secrets --namespace streamforge --from-env-file=k8s/streamforge-secrets.env
+kubectl apply -f k8s/configmap.yaml
+kubectl apply -f k8s/api.yaml -f k8s/worker.yaml -f k8s/web.yaml -f k8s/hpa.yaml
+```
+
+Do not apply the example environment file as credentials. For repeat
+deployments, update the Secret with:
+
+```powershell
+kubectl create secret generic streamforge-secrets --namespace streamforge --from-env-file=k8s/streamforge-secrets.env --dry-run=client -o yaml | kubectl apply -f -
+```
+
+PostgreSQL, Redis, and object storage should be supplied as managed production
+services or added as separate stateful workloads; the templates intentionally
+do not package development credentials into Kubernetes.
+
+### Metrics
+
+The API exposes Prometheus-compatible metrics at `GET /metrics`, including
+request totals by method and status, cumulative request duration, and current
+in-flight requests. Scrape this endpoint from the API Service in Kubernetes.
+
+When `STREAMFORGE_QUEUE_MODE=redis`, the API also uses Redis-backed
+per-client rate-limit counters so limits are shared across API replicas. If
+Redis is unavailable, it falls back to the existing process-local limiter.
+
+Monitoring assets are in `monitoring/`. `prometheus.yml` scrapes the API
+metrics endpoint and `grafana-dashboard.json` provides request-rate,
+latency, and in-flight-request panels. `k8s/servicemonitor.yaml` is provided
+for clusters running the Prometheus Operator; apply it only when that CRD is
+installed.
+
+### Distributed tracing
+
+The API creates OpenTelemetry HTTP server spans and injects W3C trace context
+into processing jobs. The worker extracts that context and creates a consumer
+span around video processing, allowing an upload request and its asynchronous
+processing job to be correlated. Request logs include the trace ID.
+
+Tracing is disabled by default. To enable OTLP/HTTP export, set
+`STREAMFORGE_OTEL_ENABLED=true` and configure
+`STREAMFORGE_OTEL_EXPORTER_OTLP_ENDPOINT` as the collector's base URL (for
+example, `http://otel-collector:4318`). Set
+`STREAMFORGE_OTEL_SERVICE_NAME` to a shared service prefix; the API and worker
+append `-api` and `-worker`. The collector must accept OTLP over HTTP on port
+4318 and be reachable from both services. Kubernetes keeps tracing disabled
+until the operator supplies a reachable collector and enables it in
+`k8s/configmap.yaml`. If tracing is enabled but exporter initialization fails,
+the service exits rather than silently running without traces.
+
+### Container publishing
+
+The CI workflow publishes API, worker, and web images to GitHub Container
+Registry when a version tag such as `v1.0.0` is pushed. Pull requests and
+regular branch pushes only build and validate images; they do not publish.
+
+```powershell
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+Published images:
+
+```text
+ghcr.io/adarshschizo/streamforge-api:v1.0.0
+ghcr.io/adarshschizo/streamforge-worker:v1.0.0
+ghcr.io/adarshschizo/streamforge-web:v1.0.0
+```
+
+### Load validation
+
+A small k6 smoke/load test is available at `tests/load/api-smoke.js`. It
+checks the health, readiness, version, and metrics endpoints with a 1% error
+budget and a 500 ms p95 latency target. See `tests/README.md` for local and
+Kubernetes port-forward commands, plus the MinIO, real FFmpeg, and browser
+end-to-end validation instructions.
 
 ### Web dashboard
 
